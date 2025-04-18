@@ -91,9 +91,9 @@ int main(int argc, char * argv[]) {
   
   while (1) {
     struct sockaddr_in client_addr;
-    socklen_t client_addr_len = sizeof(client_addr);
+    socklen_t client_len = sizeof(client_addr);
     //接受连接
-    int client_fd = accept(server_fd, NULL, NULL);
+    int client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_len);
     if (client_fd < 0) {
       if (errno == EINTR) {
         continue; //被信号中断，继续接受连接
