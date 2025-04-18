@@ -10,7 +10,7 @@
 
 //请求缓冲区大小
 #define MAX_REQUEST_SIZE 8192
-#define BUFFER_SIZA 8192
+#define BUFFER_SIZE 8192
 int active_proc = 0;
 
 //信号处理函数声明
@@ -201,7 +201,7 @@ void handle_client(int client_fd) {
 
   const char *server_port = request->port ? request->port : "80";
   //连接到目标服务器
-  int server_fd = connect_to_server(request->host, request->port);
+  int server_fd = connect_to_server(request->host, server_port);
   if (server_fd < 0) {
     fprintf(stderr, "connect to server failed\n");
     send_error(client_fd, 502, "Bad Gateway");
@@ -308,7 +308,7 @@ int forward_request(int server_fd, struct ParsedRequest *request) {
   struct ParsedHeader *conn_header = ParsedHeader_get(request, "Connection");
   if (!conn_header) {
     char conn_buf[1024];
-    snprintf(conn_buf, sizeof(conn_buf), "Connection: close %s\r\n", request->host);
+    snprintf(conn_buf, sizeof(conn_buf), "Connection: close\r\n");
     if (send(server_fd, conn_buf, strlen(conn_buf), 0) < 0) {
       perror("failed to send conn_head");
       return -1;
@@ -330,7 +330,7 @@ int forward_request(int server_fd, struct ParsedRequest *request) {
 }
 
 int forward_response(int client_fd, int server_fd) {
-  char buffer[BUFFER_SIZA];
+  char buffer[BUFFER_SIZE];
   ssize_t bytes_read;
 
   //读取并转发服务器响应
