@@ -49,7 +49,13 @@ int main(int argc, char * argv[]) {
   }
   //设置socket选项
   int opt = 1;
-  setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));//SO_REUSEADDR允许重用本地地址和端口,在服务器关闭后，端口可以立即重用
+  //SO_REUSEADDR允许重用本地地址和端口,在服务器关闭后，端口可以立即重用
+  if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+    perror("setsockopt");
+    close(server_fd);
+    return 1;
+  }
+  
 
   //准备地址结构
   struct sockaddr_in address;
@@ -72,14 +78,27 @@ int main(int argc, char * argv[]) {
   }
 
   //设置信号处理
-  signal(SIGCHLD, handle_sigchld);
+  struct sigaction sa;
+  sa.sa_handler = handle_sigchld;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = SA_RESTART;
+  if (sigaction(SIGCHLD, &sa, NULL) < 0) {
+    perror("sigaction");
+    close(server_fd);
+    return 1;
+  }
+  
   
   while (1) {
+    struct sockaddr_in client_addr;
+    socklen_t client_addr_len = sizeof(client_addr);
     //接受连接
     int client_fd = accept(server_fd, NULL, NULL);
     if (client_fd < 0) {
+      if (errno == EINTR) {
+        continue; //被信号中断，继续接受连接
+      }
       perror("accept");
-      close(server_fd);
       continue;
     }
     
@@ -101,7 +120,6 @@ int main(int argc, char * argv[]) {
       //父进程
       close(client_fd);
       active_proc++;
-      continue;
     } else {
       //子进程
       close(server_fd);
@@ -117,19 +135,48 @@ int main(int argc, char * argv[]) {
 
 void handle_sigchld(int sig) {
   int saved_errno = errno;
+  pid_t pid;
+  int status;
 
   //回收所有以终止子进程
-  while (waitpid(-1, NULL, WNOHANG) > 0) {
+  while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
     active_proc--;
   }
 
   errno = saved_errno;
 }
 
+int read_request(int client_fd, char *buffer, int buffer_size) {
+  int total_bytes = 0;
+  int bytes_read;
+
+  while(1) {
+    bytes_read = read(client_fd, buffer + total_bytes, buffer_size - total_bytes - 1);
+    if (bytes_read <= 0) {
+      return bytes_read;
+    }
+
+    total_bytes += bytes_read;
+    buffer[total_bytes] = '\0';
+
+    //检查是否收到完整http请求
+    if (strstr(buffer, "\r\n\r\n") != NULL) {
+      break;
+    }
+
+    //检查缓冲区是否已满
+    if (total_bytes >= buffer_size - 1) {
+      fprintf(stderr, "out of buffer_size\n");
+      return -1;
+    }
+  }
+  return total_bytes;
+}
+
 void handle_client(int client_fd) {
   char buffer[MAX_REQUEST_SIZE];
   //读取请求
-  int bytes_read = read(client_fd, buffer, sizeof(buffer) - 1);
+  int bytes_read = read_request(client_fd, buffer, sizeof(buffer));
   if (bytes_read < 0) {
     perror("read");
     return;
@@ -147,14 +194,17 @@ void handle_client(int client_fd) {
   //检查请求方法
   if (strcmp(request->method, "GET") != 0) {
     fprintf(stderr, "unsupported method: %s\n", request->method);
+    send_error(client_fd, 501, "Not Implemented");
     ParsedRequest_destroy(request);
     return;
   }
 
+  const char *server_port = request->port ? request->port : "80";
   //连接到目标服务器
   int server_fd = connect_to_server(request->host, request->port);
   if (server_fd < 0) {
     fprintf(stderr, "connect to server failed\n");
+    send_error(client_fd, 502, "Bad Gateway");
     ParsedRequest_destroy(request);
     return;
   }
@@ -179,45 +229,56 @@ void handle_client(int client_fd) {
 
 void send_error(int client_fd, int status_code, const char *message) {
   char response[1024];
-  snprintf(response,sizeof(response),
-            "HTTP/1.0 %d %s\r\n"
-            "Content-Type: text/html\r\n"
-            "Connection: close\r\n"
-            "<html><body><h1>%d %s</h1></body></html>\r\n",
-            status_code, message, status_code, message);
+  char body[512];
+
+  //构建响应体
+  snprintf(body, sizeof(body), "<html><body><h1>%d %s</h1></body></html>", status_code, message);
+  snprintf(response, sizeof(response),
+          "HTTP/1.0 %d %s\r\n"
+          "Content-Type: text/html\r\n"
+          "Content-Length: %zu\r\n"
+          "Connection: close\r\n"
+          "\r\n"
+          "%s",
+          status_code, message, strlen(body), body);
   send(client_fd, response, strlen(response), 0);
 }
 
 int connect_to_server(const char *host, const char *port) {
-  struct hostent *server;
-  struct sockaddr_in server_addr;
-  int server_fd;
-
-  //创建socket
-  server_fd = socket(AF_INET, SOCK_STREAM, 0);
-  if (server_fd < 0) {
-    perror("socket");
-    return -1;
-  }
-  server = gethostbyname(host);
-  if (server == NULL) {
-    fprintf(stderr, "gethostbyname failed\n");
-    close(server_fd);
-    return -1;
-  }
+  struct addrinfo hints, *servinfo, *p;
+  int server_fd, rv;
   
   //设置服务器地址
-  memset(&server_addr, 0, sizeof(server_addr));
-  server_addr.sin_family = AF_INET;
-  memcpy(&server_addr.sin_addr.s_addr, server->h_addr, server->h_length);
-  server_addr.sin_port = htons(atoi(port));
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_family = AF_INET;
+  hints.ai_socktype = SOCK_STREAM;
 
-  //连接到服务器
-  if (connect(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
-    perror("connect");
-    close(server_fd);
+  //获取地址信息
+  if ((rv = getaddrinfo(host, port, &hints, &servinfo)) != 0) {
+    fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
     return -1;
   }
+  //遍历所有可能地址，尝试连接
+  for (p = servinfo; p != NULL; p = p->ai_next) {
+    if ((server_fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) < 0) {
+      perror("socket");
+      continue;
+    }
+
+    if (connect(server_fd, p->ai_addr, p->ai_addrlen) < 0) {
+      perror("connect");
+      close(server_fd);
+      continue;
+    }
+    break;
+  }
+
+  if (p == NULL) {
+    fprintf(stderr, "fail to fetch server %s:%s\n", host, port);
+    freeaddrinfo(servinfo);
+    return -1;
+  }
+  freeaddrinfo(servinfo);
   return server_fd;
 }
 
@@ -232,6 +293,27 @@ int forward_request(int server_fd, struct ParsedRequest *request) {
     return -1;
   }
 
+  //确保有Host头
+  struct ParsedHeader *host_header = ParsedHeader_get(request, "Host");
+  if (!host_header) {
+    char host_buf[1024];
+    snprintf(host_buf, sizeof(host_buf), "Host: %s\r\n", request->host);
+    if (send(server_fd, host_buf, strlen(host_buf), 0) < 0) {
+      perror("failed to send Host_head");
+      return -1;
+    }
+  }
+
+  //去啊宝Connection： close头
+  struct ParsedHeader *conn_header = ParsedHeader_get(request, "Connection");
+  if (!conn_header) {
+    char conn_buf[1024];
+    snprintf(conn_buf, sizeof(conn_buf), "Connection: close %s\r\n", request->host);
+    if (send(server_fd, conn_buf, strlen(conn_buf), 0) < 0) {
+      perror("failed to send conn_head");
+      return -1;
+    }
+  }
   //发送请求头
   char headers_buffer[MAX_REQUEST_SIZE];
   if (ParsedRequest_unparse_headers(request, headers_buffer, sizeof(headers_buffer)) < 0) {
