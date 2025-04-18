@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #$Rev: 1300 $
 #$LastChangedDate: 2007-02-28 13:46:16 -0800 (Wed, 28 Feb 2007) $
 
@@ -10,7 +10,12 @@ import socket
 import telnetlib
 import time
 import threading
-import urlparse
+try:
+    # Python 3
+    import urllib.parse as urlparse
+except ImportError:
+    # Python 2
+    import urlparse
 
 try:
      import proxy_grade_private
@@ -59,8 +64,8 @@ def main():
      except IndexError:
           port = str(random.randint(1025, 49151))
 
-     print 'Binary: %s' % proxy_bin
-     print 'Running on port %s' % port
+     print('Binary: %s' % proxy_bin)
+     print('Running on port %s' % port)
 
      # Start the proxy running in the background
      cid = os.spawnl(os.P_NOWAIT, proxy_bin, proxy_bin, port)
@@ -69,18 +74,18 @@ def main():
 
      passcount = 0
      for url in pub_urls:
-          print '### Testing: ' + url
+          print('### Testing: ' + url)
           passed = run_test(compare_url, (url, port), cid)
           if not live_process(cid):
-               print '!!!Proxy process experienced abnormal termination during test- restarting proxy!'
+               print('!!!Proxy process experienced abnormal termination during test- restarting proxy!')
                (cid, port) = restart_proxy(proxy_bin, port)
                passed = False
 
           if passed:
-               print '%s: [PASSED]\n' % url
+               print('%s: [PASSED]\n' % url)
                passcount += 1
           else:
-               print '%s: [FAILED]\n' % url
+               print('%s: [FAILED]\n' % url)
 
      if (use_private):
           (priv_passed, test_count, cid) = proxy_grade_private.runall(port, cid, proxy_bin)
@@ -88,14 +93,14 @@ def main():
      # Cleanup
      terminate(cid)
 
-     print 'Summary: '
-     print '\t%d of %d tests passed.' % (passcount, len(pub_urls))
+     print('Summary: ')
+     print('\t%d of %d tests passed.' % (passcount, len(pub_urls)))
      if (use_private):
-          print '%d of %d extended tests passed' % (priv_passed, test_count)
+          print('%d of %d extended tests passed' % (priv_passed, test_count))
 
 def usage():
-     print "Usage: proxy_grader.py path/to/proxy/binary port"
-     print "Omit the port argument for a randomly generated port."
+     print("Usage: proxy_grader.py path/to/proxy/binary port")
+     print("Omit the port argument for a randomly generated port.")
 
 def run_test(test, args, childid):
      '''
@@ -144,7 +149,7 @@ def compare_url(argtuple):
      try:
           proxy_data = get_data('localhost', port, url)
      except socket.error:
-          print '!!!! Socket error while attempting to talk to proxy!'  
+          print('!!!! Socket error while attempting to talk to proxy!')  
           return False
 
      # Retrieve directly
@@ -153,8 +158,8 @@ def compare_url(argtuple):
      passed = True
      for (proxy, direct) in zip(proxy_data, direct_data):
           if proxy != direct and not (proxy.startswith('Date') and direct.startswith('Date')) and not (proxy.startswith('Expires') and direct.startswith('Expires')):
-               print 'Proxy: %s' % proxy
-               print 'Direct: %s'  % direct
+               print('Proxy: %s' % proxy)
+               print('Direct: %s'  % direct)
                passed = False
 
      return passed
@@ -162,20 +167,20 @@ def compare_url(argtuple):
 def get_direct(host, port, url):
      '''Retrieve a URL using direct HTTP/1.0 GET.'''
      getstring = 'GET %s HTTP/1.0\r\nHost: %s\r\nConnection: close\r\n\r\n'
-     data = http_exchange(host, port,  getstring % (url, host))
+     data = http_exchange(host, int(port),  getstring % (url, host))
      return data.split('\n')
 
 def get_data(host, port, url):
      '''Retrieve a URL using proxy HTTP/1.0 GET.'''
      getstring = 'GET %s HTTP/1.0\r\nConnection: close\r\n\r\n'
-     data = http_exchange(host, port,  getstring % url)
+     data = http_exchange(host, int(port),  getstring % url)
      return data.split('\n')
 
 def http_exchange(host, port, data):
      conn = telnetlib.Telnet()
      conn.open(host, port)
-     conn.write(data)
-     ret_data = conn.read_all()
+     conn.write(data.encode('utf-8'))  # Python 3 requires bytes for telnetlib
+     ret_data = conn.read_all().decode('utf-8')  # Decode bytes to string
      conn.close()
      return ret_data
 
@@ -189,12 +194,14 @@ def live_process(pid):
 
 def do_timeout(id):
      '''Callback function run by the monitor threads to kill a long-running operation.'''
-     print '!!!! Proxy transaction timed out after %d seconds' % timeout_secs
+     print('!!!! Proxy transaction timed out after %d seconds' % timeout_secs)
      terminate(id)
 
 def terminate(id):
      '''Stops and cleans up a running child process.'''
-     assert(live_process(id))
+     if not live_process(id):
+         print("Process already terminated")
+         return
      os.kill(id, signal.SIGINT)
      os.kill(id, signal.SIGKILL)
      try:
@@ -211,4 +218,3 @@ def restart_proxy(binary, oldport):
 
 if __name__ == '__main__':
      main()
-
