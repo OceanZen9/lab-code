@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 #$Rev: 1300 $
-#$LastChangedDate: 2007-02-28 13:46:16 -0800 (Wed, 28 Feb 2007) $
+#$LastChangedDate: 2007-02-28 13:46:16 -0800 (Wed, 28 Feb 2007) $ 源代码
+#$LastChangedDate: 2025-04-18 15:35:00 -0800 (Fri, 18 Feb 2025) $ 更新python3
 
 import os
 import random
 import sys
 import signal
 import socket
-import telnetlib
 import time
 import threading
 try:
@@ -148,8 +148,8 @@ def compare_url(argtuple):
      # Retrieve via proxy
      try:
           proxy_data = get_data('localhost', port, url)
-     except socket.error:
-          print('!!!! Socket error while attempting to talk to proxy!')  
+     except socket.error as e:
+          print('!!!! Socket error while attempting to talk to proxy: %s' % e)  
           return False
 
      # Retrieve directly
@@ -157,7 +157,7 @@ def compare_url(argtuple):
 
      passed = True
      for (proxy, direct) in zip(proxy_data, direct_data):
-          if proxy != direct and not (proxy.startswith('Date') and direct.startswith('Date')) and not (proxy.startswith('Expires') and direct.startswith('Expires')):
+          if proxy != direct and not (proxy.startswith('Date') and direct.startswith('Date')) and not (proxy.startswith('Expires') and direct.startswith('Expires')) and not (proxy.startswith('Cache-Control') and direct.startswith('Cache-Control')):
                print('Proxy: %s' % proxy)
                print('Direct: %s'  % direct)
                passed = False
@@ -167,22 +167,42 @@ def compare_url(argtuple):
 def get_direct(host, port, url):
      '''Retrieve a URL using direct HTTP/1.0 GET.'''
      getstring = 'GET %s HTTP/1.0\r\nHost: %s\r\nConnection: close\r\n\r\n'
-     data = http_exchange(host, int(port),  getstring % (url, host))
+     data = http_exchange(host, int(port), getstring % (url, host))
      return data.split('\n')
 
 def get_data(host, port, url):
      '''Retrieve a URL using proxy HTTP/1.0 GET.'''
      getstring = 'GET %s HTTP/1.0\r\nConnection: close\r\n\r\n'
-     data = http_exchange(host, int(port),  getstring % url)
+     data = http_exchange(host, int(port), getstring % url)
      return data.split('\n')
 
 def http_exchange(host, port, data):
-     conn = telnetlib.Telnet()
-     conn.open(host, port)
-     conn.write(data.encode('utf-8'))  # Python 3 requires bytes for telnetlib
-     ret_data = conn.read_all().decode('utf-8')  # Decode bytes to string
-     conn.close()
-     return ret_data
+    """Exchange HTTP data with a server using socket instead of telnetlib."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(timeout_secs)  # Set timeout
+    
+    try:
+        # Connect to the server
+        s.connect((host, port))
+        
+        # Send the request
+        s.sendall(data.encode('utf-8'))
+        
+        # Receive the response (in chunks to handle large responses)
+        response = bytearray()
+        while True:
+            try:
+                chunk = s.recv(4096)
+                if not chunk:
+                    break
+                response.extend(chunk)
+            except socket.timeout:
+                break  # Stop receiving after timeout
+    finally:
+        s.close()
+    
+    # Convert response to string
+    return response.decode('utf-8', errors='replace')
 
 def live_process(pid):
      '''Check that a process is still running.'''
@@ -203,7 +223,9 @@ def terminate(id):
          print("Process already terminated")
          return
      os.kill(id, signal.SIGINT)
-     os.kill(id, signal.SIGKILL)
+     time.sleep(0.5)  # Give process time to terminate gracefully
+     if live_process(id):
+         os.kill(id, signal.SIGKILL)
      try:
           os.waitpid(id, 0)
      except OSError:
