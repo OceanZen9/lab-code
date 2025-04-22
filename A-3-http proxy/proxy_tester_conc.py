@@ -1,26 +1,53 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #$Rev: 1300 $
-#$LastChangedDate: 2007-02-28 13:46:16 -0800 (Wed, 28 Feb 2007) $
-
+#$LastChangedDate: 2007-02-28 13:46:16 -0800 (Wed, 28 Feb 2007) $ 源代码
+#$LastUpdatedDate: 2025-04-18 15:35:00 -0800 (Fri, 18 Feb 2025) $ 更新python3
 import os
 import subprocess
 import random
 import sys
 import signal
 import socket
-import telnetlib
 import time
 import threading
-import urlparse
+import urllib.parse as urlparse
 
 from time import sleep
 
-# Ensure booleans exist (not needed for Python 2.2.1 or higher)
-try:
-    True
-except NameError:
-    False = 0
-    True = not False
+# 创建一个简单的 Telnet 替代类
+class TelnetReplacement:
+    def __init__(self):
+        self.sock = None
+        self.buffer = b''
+        
+    def open(self, host, port):
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.connect((host, int(port)))
+        
+    def write(self, data):
+        if isinstance(data, str):
+            data = data.encode('ascii')
+        self.sock.sendall(data)
+        
+    def read_all(self):
+        chunks = []
+        self.sock.settimeout(5)  # 5秒超时
+        
+        try:
+            while True:
+                chunk = self.sock.recv(4096)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+        except socket.timeout:
+            pass  # 超时表示没有更多数据了
+            
+        return b''.join(chunks)
+        
+    def close(self):
+        if self.sock:
+            self.sock.close()
+            self.sock = None
 
 class ThreadPool:
 
@@ -36,7 +63,7 @@ class ThreadPool:
         self.__resizeLock = threading.Condition(threading.Lock())
         self.__taskLock = threading.Condition(threading.Lock())
         self.__tasks = []
-        self.__processed = 0;
+        self.__processed = 0
         self.__isJoining = False
         self.setThreadCount(numThreads)
 
@@ -48,14 +75,14 @@ class ThreadPool:
         
         # Can't change the thread count if we're shutting down the pool!
         if self.__isJoining:
-            return False;
+            return False
         
         self.__resizeLock.acquire()
         try:
             self.__setThreadCountNolock(newNumThreads)
         finally:
             self.__resizeLock.release()
-            return True;
+            return True
 
     def __setThreadCountNolock(self, newNumThreads):
         
@@ -110,9 +137,9 @@ class ThreadPool:
             if self.__tasks == []:
                 return (None, None, None)
             else:
-                self.__processed = self.__processed + 1;
-                task = self.__tasks.pop(0);
-                return task;
+                self.__processed = self.__processed + 1
+                task = self.__tasks.pop(0)
+                return task
         finally:
             self.__taskLock.release()
     
@@ -127,7 +154,7 @@ class ThreadPool:
         # Wait for tasks to finish
         if waitForTasks:
             while self.__tasks != []:
-                sleep (0.1)
+                sleep(0.1)
 
         # Tell all the threads to quit
         self.__resizeLock.acquire()
@@ -149,11 +176,11 @@ class ThreadPool:
 
 
         
-class ThreadPoolThread (threading.Thread):
+class ThreadPoolThread(threading.Thread):
 
     """ Pooled thread class. """
     
-    threadSleepTime = 0.1;
+    threadSleepTime = 0.1
 
     def __init__(self, pool):
 
@@ -172,7 +199,7 @@ class ThreadPoolThread (threading.Thread):
             cmd, args, callback = self.__pool.getNextTask()
             # If there's nothing to do, just sleep a bit
             if cmd is None:
-                sleep (ThreadPoolThread.threadSleepTime)
+                sleep(ThreadPoolThread.threadSleepTime)
             elif callback is None:
                 cmd(args)
             else:
@@ -205,16 +232,16 @@ class ThreadPoolThread (threading.Thread):
 # of the testing script.
 # 
 pub_urls = ['http://www.mit.edu/',
-            'http://www.scs.stanford.edu/',];
+            'http://www.scs.stanford.edu/']
 
-pub_conc = ['http://www.mit.edu/',];
-pub_ab   = ['http://www.mit.edu/',];
-ab_conc  = ['-n 20 -c 1', '-n 200 -c 10', '-n 1000 -c 50'];
+pub_conc = ['http://www.mit.edu/']
+pub_ab   = ['http://www.mit.edu/']
+ab_conc  = ['-n 20 -c 1', '-n 200 -c 10', '-n 1000 -c 50']
 
 # timeout_secs - Individual tests will be killed if they do not
 # complete within this span of time.
 timeout_secs = 45.0
-concurrency_tries = [2, 10];
+concurrency_tries = [2, 10]
 tries = 1
 
 def main():
@@ -234,115 +261,117 @@ def main():
      c = 0
      while (c < tries):      
           c += 1
-          print 'Binary: %s' % (proxy_bin);
-          print 'Running on port %s' % port;
+          print(f'Binary: {proxy_bin}')
+          print(f'Running on port {port}')
          
           # Start the proxy running in the background
-          cid = os.spawnl (os.P_NOWAIT, proxy_bin, proxy_bin, port);
+          cid = os.spawnl(os.P_NOWAIT, proxy_bin, proxy_bin, port)
 
           # Give the proxy time to start up and start listening on the port
           time.sleep(2)
          
-          totalcount = 0;
+          totalcount = 0
           passcount = 0
           for url in pub_urls:
-              totalcount += 1;
-              print '### Testing: ' + url
-              passed = run_test (compare_url, (url, port), cid)
-              if not live_process (cid):
-                  print '!!!Proxy process experienced abnormal termination during test- restarting proxy!'
-                  (cid, port) = restart_proxy (proxy_bin, port, cid)
+              totalcount += 1
+              print(f'### Testing: {url}')
+              passed = run_test(compare_url, (url, port), cid)
+              if not live_process(cid):
+                  print('!!!Proxy process experienced abnormal termination during test- restarting proxy!')
+                  (cid, port) = restart_proxy(proxy_bin, port, cid)
                   passed = False
 
               if passed:
-                  print '%s: [PASSED]\n' % url
+                  print(f'{url}: [PASSED]\n')
                   passcount += 1
               else:
-                  print '%s: [FAILED]\n' % url
+                  print(f'{url}: [FAILED]\n')
 
           for count in concurrency_tries:
               for url in pub_conc:
-                  totalcount += 1;
-                  print '### Testing %d concurrent connects to %s' % (count, url)
-                  passed = run_test (concurrent_connect, (count, port, url), cid)
-                  if not live_process (cid):
-                      print '!!!Proxy process experienced abnormal termination during test- restarting proxy!'
-                      (cid, port) = restart_proxy (proxy_bin, port, cid)
+                  totalcount += 1
+                  print(f'### Testing {count} concurrent connects to {url}')
+                  passed = run_test(concurrent_connect, (count, port, url), cid)
+                  if not live_process(cid):
+                      print('!!!Proxy process experienced abnormal termination during test- restarting proxy!')
+                      (cid, port) = restart_proxy(proxy_bin, port, cid)
                       passed = False
                       
                   if passed:
-                      print 'Connect to %s, %d concurrently: [PASSED]\n' % (url, count)
+                      print(f'Connect to {url}, {count} concurrently: [PASSED]\n')
                       passcount += 1
                   else:
-                      print 'Connect to %s, %d concurrently: [FAILED]\n' % (url, count)
+                      print(f'Connect to {url}, {count} concurrently: [FAILED]\n')
 
           for count in concurrency_tries:
               for url in pub_conc:
-                  totalcount += 1;
-                  print '### Testing %d concurrent fetches to %s' % (count, url)
-                  passed = run_test (concurrent_fetch, (count, port, url), cid)
-                  if not live_process (cid):
-                      print '!!!Proxy process experienced abnormal termination during test- restarting proxy!'
-                      (cid, port) = restart_proxy (proxy_bin, port, cid)
+                  totalcount += 1
+                  print(f'### Testing {count} concurrent fetches to {url}')
+                  passed = run_test(concurrent_fetch, (count, port, url), cid)
+                  if not live_process(cid):
+                      print('!!!Proxy process experienced abnormal termination during test- restarting proxy!')
+                      (cid, port) = restart_proxy(proxy_bin, port, cid)
                       passed = False
 
                   if passed:
-                      print 'Fetch to %s, %d concurrently: [PASSED]\n' % (url, count)
+                      print(f'Fetch to {url}, {count} concurrently: [PASSED]\n')
                       passcount += 1
                   else:
-                      print 'Fetch to %s, %d concurrently: [FAILED]\n' % (url, count)
+                      print(f'Fetch to {url}, {count} concurrently: [FAILED]\n')
 
 
           for count in concurrency_tries:
               for url in pub_conc:
-                  totalcount += 1;
-                  print '### Testing %d concurrent split fetches' % count
-                  passed = run_test (concurrent_fetch_broken, (count, port, url), cid)
-                  if not live_process (cid):
-                      print '!!!Proxy process experienced abnormal termination during test- restarting proxy!'
-                      (cid, port) = restart_proxy (proxy_bin, port, cid)
+                  totalcount += 1
+                  print(f'### Testing {count} concurrent split fetches')
+                  passed = run_test(concurrent_fetch_broken, (count, port, url), cid)
+                  if not live_process(cid):
+                      print('!!!Proxy process experienced abnormal termination during test- restarting proxy!')
+                      (cid, port) = restart_proxy(proxy_bin, port, cid)
                       passed = False
 
                   if passed:
-                      print 'Fetch to %s, %d concurrently: [PASSED]\n' % (url, count)
+                      print(f'Fetch to {url}, {count} concurrently: [PASSED]\n')
                       passcount += 1
                   else:
-                      print 'Fetch to %s, %d concurrently: [FAILED]\n' % (url, count)
+                      print(f'Fetch to {url}, {count} concurrently: [FAILED]\n')
 
 
           for arg in ab_conc:
               for url in pub_ab:
-                  totalcount += 1;
-                  print '### Testing apache benchmark on args [%s]' % arg
-                  cmdstr = "ab -X 127.0.0.1:%s %s %s" % (port, arg, url);
+                  totalcount += 1
+                  print(f'### Testing apache benchmark on args [{arg}]')
+                  cmdstr = f"ab -X 127.0.0.1:{port} {arg} {url}"
 
-                  success = False;
-                  (sin, sout) = os.popen4 (cmdstr);
-                  line = sout.readline ()
-                  while line != "" and line != None:
-                      print "   ",line.strip ();
-                      if line.find ("Failed requests:        0") >= 0:
-                          success = True;
-                      line = sout.readline ();
+                  success = False
+                  try:
+                      process = subprocess.Popen(cmdstr, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                      stdout, stderr = process.communicate()
+                      for line in stdout.splitlines():
+                          print(f"    {line.strip()}")
+                          if "Failed requests:        0" in line:
+                              success = True
+                  except Exception as e:
+                      print(f"Error running apache benchmark: {e}")
 
                   if success:
-                      print '%s with args %s: [PASSED]\n' % (url, arg)
-                      passcount += 1;
+                      print(f'{url} with args {arg}: [PASSED]\n')
+                      passcount += 1
                   else:
-                      print '%s with args %s: [FAILED]\n' % (url, arg)
-                      (cid, port) = restart_proxy (proxy_bin, port, cid)
+                      print(f'{url} with args {arg}: [FAILED]\n')
+                      (cid, port) = restart_proxy(proxy_bin, port, cid)
 
           # Cleanup
-          terminate (cid)
-          print 'Summary: '
-          print '\tType %s: %d of %d tests passed.' % ("multi-process", passcount, totalcount);
-          terminate (cid);
-          port = str (random.randint (1025, 49151));
+          terminate(cid)
+          print('Summary: ')
+          print(f'\tType multi-process: {passcount} of {totalcount} tests passed.')
+          terminate(cid)
+          port = str(random.randint(1025, 49151))
           
 
 def usage():
-     print "Usage: proxy_tester.py path/to/proxy/binary [port]"
-     print "  Omit the port argument for a randomly generated port."
+     print("Usage: proxy_tester.py path/to/proxy/binary [port]")
+     print("  Omit the port argument for a randomly generated port.")
 
 def run_test(test, args, childid):
      '''
@@ -370,81 +399,81 @@ def run_test(test, args, childid):
 
 
 def concurrent_connect(argtuple):
-    global _connected;
+    global _connected
 
-    count, port, url = argtuple;
+    count, port, url = argtuple
 
-    pool = ThreadPool (count);
+    pool = ThreadPool(count)
     for cnt in range(count):
-        pool.queueTask (do_connect, ('localhost', port));
-    pool.joinAll ();
+        pool.queueTask(do_connect, ('localhost', port))
+    pool.joinAll()
 
-    result = compare_url ((url, port));
+    result = compare_url((url, port))
 
     for item in _connected:
         if item[1] == True:
-            item[0].close ();
+            item[0].close()
         else:
-            result = False;
-    _connected = [];
-    return result;
+            result = False
+    _connected = []
+    return result
 
 
-def concurrent_fetch (argtuple):
-    global _connected;
-    global _success;
+def concurrent_fetch(argtuple):
+    global _connected
+    global _success
 
-    _success = 0;
+    _success = 0
 
-    count, port, url = argtuple;
+    count, port, url = argtuple
 
-    pool = ThreadPool (count);
+    pool = ThreadPool(count)
     for cnt in range(count):
-        pool.queueTask (do_http_send, ('localhost', port, url));
-    pool.joinAll ();
+        pool.queueTask(do_http_send, ('localhost', port, url))
+    pool.joinAll()
 
-    result = compare_url ((url, port));
+    result = compare_url((url, port))
 
-    pool = ThreadPool (count);
+    pool = ThreadPool(count)
     for item in _connected:
         if item[1] == True:
-            pool.queueTask (do_http_read, (item[0], item[2]));
-    pool.joinAll ();
+            pool.queueTask(do_http_read, (item[0], item[2]))
+    pool.joinAll()
 
-    _connected = [];
-    return _success == count and result;
+    _connected = []
+    return _success == count and result
 
-def concurrent_fetch_broken (argtuple):
-    global _connected;
-    global _success;
+def concurrent_fetch_broken(argtuple):
+    global _connected
+    global _success
 
-    _success = 0;
+    _success = 0
 
-    count, port, url = argtuple;
+    count, port, url = argtuple
 
-    pool = ThreadPool (count);
+    pool = ThreadPool(count)
     for cnt in range(count):
-        pool.queueTask (do_http_send_partial, ('localhost', port, url));
-    pool.joinAll ();
+        pool.queueTask(do_http_send_partial, ('localhost', port, url))
+    pool.joinAll()
 
-    result = compare_url ((url, port));
+    result = compare_url((url, port))
 
-    connected = _connected;
+    connected = _connected
 
-    pool = ThreadPool (count);
+    pool = ThreadPool(count)
     for item in connected:
         if item[1] == True:
-            pool.queueTask (do_http_send_finish, item[0]);
-    pool.joinAll ();
+            pool.queueTask(do_http_send_finish, item[0])
+    pool.joinAll()
 
-    pool = ThreadPool (count);
+    pool = ThreadPool(count)
     for item in _connected:
         if item[1] == True:
-            pool.queueTask (do_http_read, (item[0], item[2]));
-    pool.joinAll ();
+            pool.queueTask(do_http_read, (item[0], item[2]))
+    pool.joinAll()
 
-    _connected = [];
-    return _success == count and result;
+    _connected = []
+    return _success == count and result
 
 
 def compare_url(argtuple):
@@ -470,7 +499,7 @@ def compare_url(argtuple):
      try:
           proxy_data = get_data('localhost', port, url)
      except socket.error:
-          print '!!!! Socket error while attempting to talk to proxy!'  
+          print('!!!! Socket error while attempting to talk to proxy!')  
           return False
 
      # Retrieve directly
@@ -480,117 +509,119 @@ def compare_url(argtuple):
      for (proxy, direct) in zip(proxy_data, direct_data):
           if proxy != direct and not (proxy.startswith('Date') and direct.startswith('Date')) \
                   and not (proxy.startswith('Expires') and direct.startswith('Expires')) \
-                  and not (proxy.startswith('Cache-Control') and direct.startswith('Cache-Control')):
-               print 'compare_url failed on %s' % url
-               print 'Proxy:  %s' % proxy
-               print 'Direct: %s' % direct
+                  and not (proxy.startswith('Cache-Control') and direct.startswith('Cache-Control')) \
+                  and not (proxy.startswith('X-Served-By') and direct.startswith('X-Served-By')):
+               print(f'compare_url failed on {url}')
+               print(f'Proxy:  {proxy}')
+               print(f'Direct: {direct}')
                passed = False
-               break;
+               break
 
      return passed
 
 def get_direct(host, port, url):
      '''Retrieve a URL using direct HTTP/1.0 GET.'''
      getstring = 'GET %s HTTP/1.0\r\nHost: %s\r\nConnection: close\r\n\r\n'
-     data = http_exchange(host, port,  getstring % (url, host))
+     data = http_exchange(host, port, getstring % (url, host))
      return data.split('\n')
 
 def get_data(host, port, url):
      '''Retrieve a URL using proxy HTTP/1.0 GET.'''
      getstring = 'GET %s HTTP/1.0\r\nConnection: close\r\n\r\n'
-     data = http_exchange(host, port,  getstring % url)
+     data = http_exchange(host, port, getstring % url)
      return data.split('\n')
 
 
-_connected = [];
-_success = 0;
+_connected = []
+_success = 0
 
-def do_connect (argtuple):
-    global _connected;
-    host, port = argtuple;
+def do_connect(argtuple):
+    global _connected
+    host, port = argtuple
     try:
-        conn = telnetlib.Telnet()
+        conn = TelnetReplacement()
         conn.open(host, port)
-        _connected.append ((conn, True));
+        _connected.append((conn, True))
     except socket.error:
-        print '!!! do_connect: Socket error while attempting to talk to proxy: %s port %s'  % (host, port);
-        _connected.append ((conn, False));
+        print(f'!!! do_connect: Socket error while attempting to talk to proxy: {host} port {port}')
+        _connected.append((None, False))
 
 
-def do_http_send (argtuple):
-    global _connected;
-    host, port, url = argtuple;
+def do_http_send(argtuple):
+    global _connected
+    host, port, url = argtuple
     try:
-        data = 'GET %s HTTP/1.0\r\nConnection: close\r\n\r\n' % url;
-        conn = telnetlib.Telnet()
+        data = f'GET {url} HTTP/1.0\r\nConnection: close\r\n\r\n'
+        conn = TelnetReplacement()
         conn.open(host, port)
         conn.write(data)
-        _connected.append ((conn, True, url));
+        _connected.append((conn, True, url))
     except socket.error:
-        print '!!!! do_http_send: Socket error while attempting to talk to proxy: %s port %s'  % (host, port);
-        _connected.append ((conn, False, url));
+        print(f'!!!! do_http_send: Socket error while attempting to talk to proxy: {host} port {port}')
+        _connected.append((None, False, url))
 
 
-def do_http_read (argtuple):
-    global _success;
+def do_http_read(argtuple):
+    global _success
 
-    conn, url = argtuple;
+    conn, url = argtuple
     try:
-        proxy_data = conn.read_all().split ('\n');
-        conn.close ();
+        proxy_data = conn.read_all().decode('ascii', errors='replace').split('\n')
+        conn.close()
 
-        urldata = urlparse.urlparse (url)
+        urldata = urlparse.urlparse(url)
         try:
             (host, hostport) = urldata[1].split(':')
         except ValueError:
-            host = urldata[1];
+            host = urldata[1]
             hostport = 80
 
         # Retrieve directly
-        direct_data = get_direct (host, hostport, urldata[2])
+        direct_data = get_direct(host, hostport, urldata[2])
 
         passed = True
         for (proxy, direct) in zip(proxy_data, direct_data):
           if proxy != direct and not (proxy.startswith('Date') and direct.startswith('Date')) \
                   and not (proxy.startswith('Expires') and direct.startswith('Expires')) \
-                  and not (proxy.startswith('Cache-Control') and direct.startswith('Cache-Control')):
-                print 'do_http_read failed on %s' % url
-                print 'Proxy:  %s' % proxy
-                print 'Direct: %s' % direct
+                  and not (proxy.startswith('Cache-Control') and direct.startswith('Cache-Control')) \
+                  and not (proxy.startswith('X-Served-By') and direct.startswith('X-Served-By')):
+                print(f'do_http_read failed on {url}')
+                print(f'Proxy:  {proxy}')
+                print(f'Direct: {direct}')
                 passed = False
-                break;
+                break
 
         if passed:
-            _success += 1;
+            _success += 1
     except socket.error:
-        print '!!!! do_http_read: Socket error while attempting to talk to proxy';
+        print('!!!! do_http_read: Socket error while attempting to talk to proxy')
 
 
-def do_http_send_partial (argtuple):
-    global _connected;
-    host, port, url = argtuple;
+def do_http_send_partial(argtuple):
+    global _connected
+    host, port, url = argtuple
     try:
-        data = 'GET %s ' % url;
-        conn = telnetlib.Telnet()
+        data = f'GET {url} '
+        conn = TelnetReplacement()
         conn.open(host, port)
         conn.write(data)
-        _connected.append ((conn, True, url));
+        _connected.append((conn, True, url))
     except socket.error:
-        print '!!!! do_http_send_partial: Socket error while attempting to talk to proxy: %s port %s'  % (host, port);
-        _connected.append ((conn, False, url));
+        print(f'!!!! do_http_send_partial: Socket error while attempting to talk to proxy: {host} port {port}')
+        _connected.append((None, False, url))
 
-def do_http_send_finish (conn):
+def do_http_send_finish(conn):
     try:
-        data = 'HTTP/1.0\r\nConnection: close\r\n\r\n';
+        data = 'HTTP/1.0\r\nConnection: close\r\n\r\n'
         conn.write(data)
     except socket.error:
-        print '!!!! do_http_send_finish: Socket error while attempting to talk to proxy';
+        print('!!!! do_http_send_finish: Socket error while attempting to talk to proxy')
 
 def http_exchange(host, port, data):
-     conn = telnetlib.Telnet()
+     conn = TelnetReplacement()
      conn.open(host, port)
      conn.write(data)
-     ret_data = conn.read_all()
+     ret_data = conn.read_all().decode('ascii', errors='replace')
      conn.close()
      return ret_data
 
@@ -604,14 +635,14 @@ def live_process(pid):
 
 def do_timeout(id):
      '''Callback function run by the monitor threads to kill a long-running operation.'''
-     print '!!!! Proxy transaction timed out after %d seconds' % timeout_secs
+     print(f'!!!! Proxy transaction timed out after {timeout_secs} seconds')
      terminate(id)
 
 def terminate(id):
      '''Stops and cleans up a running child process.'''
-     if live_process (id) == True:
+     if live_process(id) == True:
          os.kill(id, signal.SIGINT)
-         time.sleep (3)
+         time.sleep(3)
          os.kill(id, signal.SIGKILL)
          try:
              os.waitpid(id, 0)
@@ -620,12 +651,11 @@ def terminate(id):
 
 def restart_proxy(binary, oldport, oldcid):
      '''Restart the proxy on a new port number.'''
-     terminate (oldcid);
-     newport = str (int(oldport) + 1)
-     cid = os.spawnl(os.P_NOWAIT, binary, binary, newport);
+     terminate(oldcid)
+     newport = str(int(oldport) + 1)
+     cid = os.spawnl(os.P_NOWAIT, binary, binary, newport)
      time.sleep(3)
      return (cid, newport)
 
 if __name__ == '__main__':
      main()
-
