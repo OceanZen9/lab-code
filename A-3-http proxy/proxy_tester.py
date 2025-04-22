@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 #$Rev: 1300 $
 #$LastChangedDate: 2007-02-28 13:46:16 -0800 (Wed, 28 Feb 2007) $ 源代码
-#$LastChangedDate: 2025-04-18 15:35:00 -0800 (Fri, 18 Feb 2025) $ 更新python3
+#$LastUpdatedDate: 2025-04-18 15:35:00 -0800 (Fri, 18 Feb 2025) $ 更新python3
 
 import os
 import random
@@ -157,9 +157,9 @@ def compare_url(argtuple):
 
      passed = True
      for (proxy, direct) in zip(proxy_data, direct_data):
-          if proxy != direct and not (proxy.startswith('Date') and direct.startswith('Date')) and not (proxy.startswith('Expires') and direct.startswith('Expires')) and not (proxy.startswith('Cache-Control') and direct.startswith('Cache-Control')):
+          if proxy != direct and not (proxy.startswith('Date') and direct.startswith('Date')) and not (proxy.startswith('Expires') and direct.startswith('Expires')) and not (proxy.startswith('X-Served-By') and direct.startswith('X-Served-By')):
                print('Proxy: %s' % proxy)
-               print('Direct: %s'  % direct)
+               print('Direct: %s' % direct)
                passed = False
 
      return passed
