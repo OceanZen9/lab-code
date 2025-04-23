@@ -157,9 +157,9 @@ int read_request(int client_fd, char *buffer, int buffer_size) {
     }
 
     total_bytes += bytes_read;
-    buffer[total_bytes] = '\0';
+    buffer[total_bytes] = '\0'; //c语言字符串本质为字符数组，必须以'\0'结尾
 
-    //检查是否收到完整http请求
+    //检查是否收到完整http请求头
     if (strstr(buffer, "\r\n\r\n") != NULL) {
       break;
     }
@@ -181,7 +181,8 @@ void handle_client(int client_fd) {
     perror("read");
     return;
   }
-  buffer[bytes_read] = '\0';
+  
+  buffer[bytes_read] = '\0';  
 
   //解析请求
   struct ParsedRequest *request = ParsedRequest_create();
@@ -253,7 +254,7 @@ int connect_to_server(const char *host, const char *port) {
   hints.ai_family = AF_INET;
   hints.ai_socktype = SOCK_STREAM;
 
-  //获取地址信息
+  //获取地址信息，DNS解析
   if ((rv = getaddrinfo(host, port, &hints, &servinfo)) != 0) {
     fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
     return -1;
@@ -304,7 +305,7 @@ int forward_request(int server_fd, struct ParsedRequest *request) {
     }
   }
 
-  //去啊宝Connection： close头
+  //确保Connection： close头
   struct ParsedHeader *conn_header = ParsedHeader_get(request, "Connection");
   if (!conn_header) {
     char conn_buf[1024];
@@ -314,7 +315,7 @@ int forward_request(int server_fd, struct ParsedRequest *request) {
       return -1;
     }
   }
-  //发送请求头
+  //将解析后的头部转换为字符串，存入 headers_buffer
   char headers_buffer[MAX_REQUEST_SIZE];
   if (ParsedRequest_unparse_headers(request, headers_buffer, sizeof(headers_buffer)) < 0) {
     fprintf(stderr, "unparse headers failed\n");
