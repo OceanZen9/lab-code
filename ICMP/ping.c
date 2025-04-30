@@ -66,3 +66,42 @@ uint16_t compute_checksum(uint16_t *addr, int len) {
     answer = ~sum;
     return answer;
 }
+
+void send_ping(int socket_fd, struct sockaddr_in *addr, int seq) {
+    struct icmp icmp_hdr;
+    memset(&icmp_hdr, 0, sizeof(icmp_hdr));
+    icmp_hdr.icmp_type = ICMP_ECHO;;
+    icmp_hdr.icmp_code = 0;
+    icmp_hdr.icmp_cksum = 0;
+    icmp_hdr.icmp_seq = seq;
+    icmp_hdr.icmp_id = getpid();
+    gettimeofday((struct timeval *)&icmp_hdr.icmp_data, NULL);
+    icmp_hdr.icmp_cksum = compute_checksum((uint16_t *)&icmp_hdr, sizeof(icmp_hdr));
+    if (sendto(socket_fd, &icmp_hdr, sizeof(icmp_hdr), 0, (struct sockaddr *)addr, sizeof(*addr)) <= 0) {
+        perror("sendto");
+    }
+    printf("Sent ICMP Echo request to %s\n", inet_ntoa(addr->sin_addr));
+}
+
+int recv_ping(int socket_fd, int seq, struct timeval *tv_send) {
+    char buffer[1024];
+    struct sockaddr_in addr;
+    socklen_t addr_len = sizeof(addr);
+    struct icmp *icmp_hdr;
+    struct timeval tv_recv;
+    memset(buffer, 0, sizeof(buffer));
+    if (recvfrom(socket_fd, buffer, sizeof(buffer), 0, (struct sockaddr *)&addr, &addr_len) <= 0) {
+        perror("recvfrom");
+        return 1;
+    }
+    gettimeofday(&tv_recv, NULL);
+    icmp_hdr = (struct icmp *)(buffer + sizeof(struct ip));
+    if (icmp_hdr->icmp_type == ICMP_ECHOREPLY && icmp_hdr->icmp_seq == seq) {
+        double rtt = (tv_recv.tv_sec - tv_send->tv_sec) * 1000.0 + (tv_recv.tv_usec - tv_send->tv_usec) / 1000.0;
+        printf("Received ICMP Echo reply from %s: seq=%d time=%.2f ms\n", inet_ntoa(addr.sin_addr), seq, rtt);
+    } else {
+        printf("Received unexpected ICMP packet\n");
+    }
+    close(socket_fd);
+    return 0;
+}
