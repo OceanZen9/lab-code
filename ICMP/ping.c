@@ -7,10 +7,11 @@
 #include <unistd.h>
 #include <string.h>
 #include <sys/time.h>
+#include <math.h>
 
 uint16_t compute_checksum(uint16_t *addr, int len);//计算ICMP报文的校验和
 void send_ping(int socket_fd, struct sockaddr_in *addr, int seq);//构造和发送ICMP Echo请求
-int recv_ping(int socket_fd, int seq, struct timeval *tv_send);//接受和处理ICMP Echo回复
+int recv_ping(int socket_fd, int seq, struct timeval *tv_send, double *rtt);//接受和处理ICMP Echo回复
 
 int main(int argc, char *argv[]) {
     if (argc != 2) {
@@ -43,10 +44,42 @@ int main(int argc, char *argv[]) {
     }
 
     struct timeval tv_send;
-    send_ping(socket_fd, &addr, 0); // 发送ICMP Echo请求，序列号为0
-    gettimeofday(&tv_send, NULL);   // 记录发送时间
-    recv_ping(socket_fd, 0, &tv_send); // 接收ICMP Echo回复，序列号为0
+    int count = 0;                  // ping 次数计数器
+    int num_packets = 5;
+    double min_rtt = 1000000.0;     // 初始化最小 RTT 为一个很大的值
+    double max_rtt = 0.0;           // 初始化最大 RTT 为 0
+    double sum_rtt = 0.0;           // RTT 总和
+    double sum_rtt_squared = 0.0;   // RTT 平方和，用于计算标准差
+    double rtt;
 
+    while (count < num_packets) { // 循环发送 ping 请求
+        double rtt_current = 0; // 当前 RTT
+        send_ping(socket_fd, &addr, count);
+        gettimeofday(&tv_send, NULL);
+        if (recv_ping(socket_fd, count, &tv_send, &rtt_current) == 0) { // 接收 ping 回复
+            rtt = rtt_current;
+            count++;
+            min_rtt = (rtt < min_rtt) ? rtt : min_rtt; // 更新最小 RTT
+            max_rtt = (rtt > max_rtt) ? rtt : max_rtt; // 更新最大 RTT
+            sum_rtt += rtt;                           // 累加 RTT
+            sum_rtt_squared += rtt * rtt;             // 累加 RTT 的平方
+            count ++;
+        } else {
+            printf("Request timed out\n"); // 超时处理
+        }
+
+        sleep(1); // 暂停 1 秒
+
+        // 打印统计信息
+        if (count > 0) {
+            double avg_rtt = sum_rtt / count;
+            double std_dev = sqrt((sum_rtt_squared / count) - (avg_rtt * avg_rtt)); // 计算标准差
+            printf("--- %s ping statistics ---\n", inet_ntoa(addr.sin_addr));
+            printf("%d packets transmitted, %d received, %.2f%% packet loss, time %.0fms\n", count, count, 0.0, sum_rtt); 
+            printf("rtt min/avg/max/mdev = %.2f/%.2f/%.2f/%.2f ms\n", min_rtt, avg_rtt, max_rtt, std_dev);
+        }
+    }
+    close(socket_fd);
     return 0;
 }
 
@@ -94,7 +127,7 @@ void send_ping(int socket_fd, struct sockaddr_in *addr, int seq) {
     printf("Sent ICMP Echo request to %s\n", inet_ntoa(addr->sin_addr));
 }
 
-int recv_ping(int socket_fd, int seq, struct timeval *tv_send) {
+int recv_ping(int socket_fd, int seq, struct timeval *tv_send, double *rtt) {
     char buffer[1024];
     struct sockaddr_in addr;
     socklen_t addr_len = sizeof(addr);
@@ -108,11 +141,10 @@ int recv_ping(int socket_fd, int seq, struct timeval *tv_send) {
     gettimeofday(&tv_recv, NULL);
     icmp_hdr = (struct icmp *)(buffer + sizeof(struct ip));
     if (icmp_hdr->icmp_type == ICMP_ECHOREPLY && icmp_hdr->icmp_seq == seq) {
-        double rtt = (tv_recv.tv_sec - tv_send->tv_sec) * 1000.0 + (tv_recv.tv_usec - tv_send->tv_usec) / 1000.0;
-        printf("Received ICMP Echo reply from %s: seq=%d time=%.2f ms\n", inet_ntoa(addr.sin_addr), seq, rtt);
+        *rtt = (tv_recv.tv_sec - tv_send->tv_sec) * 1000.0 + (tv_recv.tv_usec - tv_send->tv_usec) / 1000.0; // 计算 RTT 并通过指针返回
+        printf("Received ICMP Echo reply from %s: seq=%d time=%.2f ms\n", inet_ntoa(addr.sin_addr), seq, *rtt);
     } else {
         printf("Received unexpected ICMP packet\n");
     }
-    close(socket_fd);
     return 0;
 }
