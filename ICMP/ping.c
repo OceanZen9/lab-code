@@ -12,33 +12,44 @@ uint16_t compute_checksum(uint16_t *addr, int len);//计算ICMP报文的校验�
 void send_ping(int socket_fd, struct sockaddr_in *addr, int seq);//构造和发送ICMP Echo请求
 int recv_ping(int socket_fd, int seq, struct timeval *tv_send);//接受和处理ICMP Echo回复
 
-int main(int argv, char *argc[]) {
-    if (argv != 2) {
-        fprintf(stderr, "Usage: %s <IP address>\n", argc[0]);
+int main(int argc, char *argv[]) {
+    if (argc != 2) {
+        fprintf(stderr, "Usage: %s <IP address>\n", argv[0]);
+        return 1;
     }
-    char *ip_address = argc[1];
-    //创建socket
+
+    char *ip_address = argv[1];
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    if (inet_pton(AF_INET, ip_address, &addr.sin_addr) <= 0) {
+        fprintf(stderr, "Invalid IP address: %s\n", ip_address);
+        return 1;
+    }
+
     int socket_fd;
-    if (socket_fd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP) < 0) {
+    if ((socket_fd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP)) < 0) {
         perror("socket");
         return 1;
     }
-    //设置接受超时
+
     struct timeval timeout;
     timeout.tv_sec = 1;
     timeout.tv_usec = 0;
-    if (setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof timeout)) {
+    if (setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof timeout) < 0) {
         perror("setsockopt");
         close(socket_fd);
         return 1;
     }
-    //构造ICMP报文结构
-    struct icmp *icmp_hdr;
-    memset(&icmp_hdr, 0, sizeof(icmp_hdr));
-    icmp_hdr->icmp_type = ICMP_ECHO;
-    icmp_hdr->icmp_code = 0;
-    icmp_hdr->icmp_cksum = 0;
+
+    struct timeval tv_send;
+    send_ping(socket_fd, &addr, 0); // 发送ICMP Echo请求，序列号为0
+    gettimeofday(&tv_send, NULL);   // 记录发送时间
+    recv_ping(socket_fd, 0, &tv_send); // 接收ICMP Echo回复，序列号为0
+
+    return 0;
 }
+
 
 uint16_t compute_checksum(uint16_t *addr, int len) {
     int nleft = len;
