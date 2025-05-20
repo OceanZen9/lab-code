@@ -55,7 +55,6 @@ int main(int argc, char * argv[]) {
     close(server_fd);
     return 1;
   }
-  
 
   //准备地址结构
   struct sockaddr_in address;
@@ -128,8 +127,6 @@ int main(int argc, char * argv[]) {
       exit(0);
     }
   }
-  
-
   return 0;
 }
 

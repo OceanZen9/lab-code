@@ -53,7 +53,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    timeout.tv_sec = 1; // 1 second timeout for recvfrom
+    timeout.tv_sec = 1;
     timeout.tv_usec = 0;
     if (setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof timeout) < 0) {
         perror("setsockopt");
@@ -61,13 +61,15 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    // 注册信号处理函数 (可选, 用于Ctrl+C优雅退出并打印统计)
+    // 注册信号处理函数
     signal(SIGINT, sigint_handler);
 
-    int packets_to_send = 5; // 您可以按需修改要发送的包数量，或者从命令行参数读取
+    //初始化ping相关变量
+    int packets_to_send = 5;
     int packets_sent = 0;
     int packets_received = 0;
-    
+
+    //RTT相关统计变量
     double rtt, min_rtt = 1000000.0, max_rtt = 0.0, sum_rtt = 0.0, sum_rtt_squared = 0.0;
     double avg_rtt = 0.0, std_dev = 0.0;
     double rtt_current;
@@ -76,12 +78,12 @@ int main(int argc, char *argv[]) {
     printf("PING %s (%s)\n", ip_address, ip_address); // 类似标准ping的起始输出
 
     gettimeofday(&tv_start_run, NULL); // 记录整个ping过程的开始时间
-    gettimeofday(&tv_start_total_final, NULL); // For final stats upon SIGINT
+    gettimeofday(&tv_start_total_final, NULL);
 
     for (int i = 0; i < packets_to_send && !stop_ping; ++i) {
         send_ping(socket_fd, &addr, i); // 使用循环变量 i 作为序列号
         packets_sent++;
-        total_packets_sent_final = packets_sent; // Update for final stats
+        total_packets_sent_final = packets_sent;
 
         gettimeofday(&tv_send, NULL); // 精确记录发送时间
 
@@ -96,7 +98,6 @@ int main(int argc, char *argv[]) {
             sum_rtt += rtt;
             sum_rtt_squared += rtt * rtt;
 
-            // Update final stats accumulators
             if (rtt < total_min_rtt_final) total_min_rtt_final = rtt;
             if (rtt > total_max_rtt_final) total_max_rtt_final = rtt;
             total_sum_rtt_final = sum_rtt;
@@ -111,15 +112,15 @@ int main(int argc, char *argv[]) {
     gettimeofday(&tv_end_total_final, NULL);
 
     // --- 最终统计信息 ---
-    if (stop_ping) { // If interrupted by Ctrl+C
+    if (stop_ping) {
         packets_sent = total_packets_sent_final;
         packets_received = total_packets_received_final;
         sum_rtt = total_sum_rtt_final;
         sum_rtt_squared = total_sum_rtt_squared_final;
         min_rtt = total_min_rtt_final;
         max_rtt = total_max_rtt_final;
-        tv_start_run = tv_start_total_final; // Use overall start time
-        tv_end_run = tv_end_total_final;     // Use interrupt time as end
+        tv_start_run = tv_start_total_final;
+        tv_end_run = tv_end_total_final;
     }
 
 
@@ -137,23 +138,19 @@ int main(int argc, char *argv[]) {
 
     if (packets_received > 0) {
         avg_rtt = sum_rtt / packets_received;
-        // 计算标准差 (mdev)
-        // Variance = E[X^2] - (E[X])^2
-        //          = (sum_rtt_squared / packets_received) - (avg_rtt * avg_rtt)
-        if (packets_received > 1) { // Standard deviation is typically meaningful for >1 samples
+         if (packets_received > 1) {
            double variance = (sum_rtt_squared / packets_received) - (avg_rtt * avg_rtt);
-           // Variance might be slightly negative due to floating point inaccuracies if all RTTs are identical
-           std_dev = (variance > 0) ? sqrt(variance) : 0.0;
+            std_dev = (variance > 0) ? sqrt(variance) : 0.0;
         } else {
-            std_dev = 0.0; // Or undefined, often shown as 0 if only one sample
+            std_dev = 0.0;
         }
         // 确保min_rtt没有因为未收到包而保持初始值
         if (packets_received == 0) {
-             min_rtt = 0.0; // Or handle as N/A
+             min_rtt = 0.0;
         }
 
         printf("rtt min/avg/max/mdev = %.3f/%.3f/%.3f/%.3f ms\n",
-               min_rtt == 1000000.0 ? 0.0 : min_rtt, // Handle case where no packets received
+               min_rtt == 1000000.0 ? 0.0 : min_rtt,
                avg_rtt,
                max_rtt,
                std_dev);
